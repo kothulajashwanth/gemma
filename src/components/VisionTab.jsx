@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Zap, Upload, RefreshCw, CheckCircle2, AlertOctagon, 
-  Sparkles, ShieldCheck, ArrowRight, Video, VideoOff, Info, Loader2, Play, Eye
+  Zap, Upload, RefreshCw, AlertOctagon, 
+  Sparkles, ShieldCheck, ArrowRight, Video, VideoOff, Info, Loader2, Eye
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { soundFx } from '../utils/audioSynth';
@@ -17,6 +17,13 @@ export default function VisionTab({ onCreateReport }) {
   const [autoScanActive, setAutoScanActive] = useState(true);
   const videoRef = useRef(null);
   const scanIntervalRef = useRef(null);
+
+  // Reset entire detection state cleanly before any new scan
+  const resetDetectionState = () => {
+    console.log("[AI Vision] Resetting previous detection state...");
+    setScanAnalysis(null);
+    setErrorMessage('');
+  };
 
   // Initialize webcam feed automatically on mount
   useEffect(() => {
@@ -89,9 +96,11 @@ export default function VisionTab({ onCreateReport }) {
     });
   };
 
-  // Capture frame and query Gemini Vision autonomously
+  // Autonomous Frame Capture & Gemini Vision Analysis
   const autoCaptureAndScan = async () => {
     if (!videoRef.current || isScanning || scanAnalysis) return;
+
+    resetDetectionState();
 
     try {
       const canvas = document.createElement('canvas');
@@ -104,20 +113,22 @@ export default function VisionTab({ onCreateReport }) {
       const compressedBase64 = await compressImage(rawBase64);
       
       setIsScanning(true);
-      setErrorMessage('');
+
+      console.log(`[AI Vision] Auto-capture frame created. Payload length: ${compressedBase64.length}`);
 
       const result = await queryGeminiVision(compressedBase64);
       
       if (result && result.hazards && result.hazards.length > 0) {
         soundFx.playAlertSound();
         setScanAnalysis({
+          timestamp: Date.now(),
           description: result.description,
           hazards: result.hazards,
           image: compressedBase64
         });
       }
     } catch (err) {
-      console.warn("Auto-scan loop tick failed:", err.message);
+      console.warn("[AI Vision] Auto-scan tick error:", err.message);
     } finally {
       setIsScanning(false);
     }
@@ -126,9 +137,8 @@ export default function VisionTab({ onCreateReport }) {
   // Manual Trigger shutter action
   const handleTriggerScan = async (fileBase64 = null) => {
     soundFx.playScanSound();
+    resetDetectionState();
     setIsScanning(true);
-    setErrorMessage('');
-    setScanAnalysis(null);
 
     let imageBase64 = fileBase64;
 
@@ -154,21 +164,24 @@ export default function VisionTab({ onCreateReport }) {
       return;
     }
 
+    console.log(`[AI Vision] Manual scan initiated. Payload length: ${imageBase64.length}`);
+
     try {
       const result = await queryGeminiVision(imageBase64);
       
       if (result) {
         setScanAnalysis({
+          timestamp: Date.now(),
           description: result.description,
           hazards: result.hazards || [],
           image: imageBase64
         });
         soundFx.playSuccessSound();
       } else {
-        setErrorMessage("Vision AI Engine Offline. Check Google API Key or Network Connection.");
+        setErrorMessage("Unable to analyze this image. Please retry.");
       }
     } catch (err) {
-      setErrorMessage("AI analysis failed.");
+      setErrorMessage("Unable to analyze this image. Please retry.");
     } finally {
       setIsScanning(false);
     }
@@ -206,8 +219,7 @@ export default function VisionTab({ onCreateReport }) {
   const resetCamera = () => {
     soundFx.playClickSound();
     setCapturedImage(null);
-    setScanAnalysis(null);
-    setErrorMessage('');
+    resetDetectionState();
     setAutoScanActive(true);
   };
 
@@ -262,17 +274,16 @@ export default function VisionTab({ onCreateReport }) {
           />
         )}
 
-        {/* Dynamic Multi-Object Bounding Box Overlays */}
+        {/* Dynamic Multi-Object Bounding Box Overlays (Only from current scan) */}
         {!isScanning && scanAnalysis?.hazards && scanAnalysis.hazards.map((hazard, i) => {
-          // Bounding Box dimensions [top, left, height, width]
           const box = hazard.box || [20 + (i * 10), 20 + (i * 15), 45, 45];
           const isCritical = hazard.severity === 'Critical' || hazard.severity === 'High';
           const color = isCritical ? '#FF4D6D' : '#00E5FF';
 
           return (
             <div 
-              key={i}
-              className="absolute border-2 rounded-xl backdrop-blur-[1px] animate-pulse pointer-events-none z-20"
+              key={`${scanAnalysis.timestamp}-${i}`}
+              className="absolute border-2 rounded-xl backdrop-blur-[1px] animate-pulse pointer-events-none z-20 transition-all duration-300"
               style={{
                 top: `${box[0]}%`,
                 left: `${box[1]}%`,
@@ -329,10 +340,9 @@ export default function VisionTab({ onCreateReport }) {
                 if (file) {
                   const reader = new FileReader();
                   reader.onload = async () => {
+                    resetDetectionState();
                     const compressed = await compressImage(reader.result);
                     setCapturedImage(compressed);
-                    setScanAnalysis(null);
-                    setErrorMessage('');
                     setAutoScanActive(false);
                     handleTriggerScan(compressed);
                   };
@@ -372,9 +382,9 @@ export default function VisionTab({ onCreateReport }) {
         </div>
       )}
 
-      {/* Multi-Hazard Result Timeline & Banners */}
+      {/* Multi-Hazard Result Timeline & Banners (Rendered ONLY from current scan timestamp) */}
       {scanAnalysis && (
-        <div className="space-y-3">
+        <div key={scanAnalysis.timestamp} className="space-y-3 animate-fadeIn">
           
           <div className="glass-panel p-4 border border-white/10">
             <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1">
@@ -388,12 +398,12 @@ export default function VisionTab({ onCreateReport }) {
             )}
           </div>
 
-          {/* Individual Hazard Cards */}
+          {/* Individual Hazard Cards for THIS scan only */}
           {scanAnalysis.hazards.map((hazard, index) => {
             const isCritical = hazard.severity === 'Critical' || hazard.severity === 'High';
             return (
               <div 
-                key={index}
+                key={`${scanAnalysis.timestamp}-card-${index}`}
                 className={`p-5 rounded-[28px] border transition-all duration-300 ${
                   isCritical 
                     ? 'bg-gradient-to-br from-[#FF4D6D]/10 to-transparent border-[#FF4D6D]/40 shadow-lg shadow-[#FF4D6D]/10' 
