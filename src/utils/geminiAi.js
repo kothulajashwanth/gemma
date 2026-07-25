@@ -48,7 +48,6 @@ export async function queryHydraAI(prompt) {
               }]
             })
           }
-        }
         );
 
         if (restRes.ok) {
