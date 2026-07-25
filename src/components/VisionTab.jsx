@@ -1,70 +1,59 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  Camera, Zap, Upload, RefreshCw, CheckCircle2, AlertOctagon, 
-  Sparkles, Layers, ShieldCheck, ArrowRight, Video, VideoOff, Info, Loader2
+  Zap, Upload, RefreshCw, CheckCircle2, AlertOctagon, 
+  Sparkles, ShieldCheck, ArrowRight, Video, VideoOff, Info, Loader2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { MOCK_VISION_SAMPLES } from '../utils/mockData';
 import { soundFx } from '../utils/audioSynth';
 import { queryGeminiVision } from '../utils/geminiAi';
 
 export default function VisionTab({ onCreateReport }) {
-  const [selectedSample, setSelectedSample] = useState(MOCK_VISION_SAMPLES[0]);
   const [isScanning, setIsScanning] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
-  const [useWebcam, setUseWebcam] = useState(false);
   const [webcamStream, setWebcamStream] = useState(null);
   const [capturedImage, setCapturedImage] = useState(null);
-  const [scanAnalysis, setScanAnalysis] = useState(MOCK_VISION_SAMPLES[0]);
+  const [scanAnalysis, setScanAnalysis] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
   const videoRef = useRef(null);
 
-  // Toggle Live Webcam
-  const toggleWebcam = async () => {
-    soundFx.playClickSound();
-    if (useWebcam) {
-      if (webcamStream) {
-        webcamStream.getTracks().forEach(track => track.stop());
-      }
-      setWebcamStream(null);
-      setUseWebcam(false);
-      setCapturedImage(null);
-    } else {
+  // Initialize webcam feed automatically on mount
+  useEffect(() => {
+    let activeStream = null;
+    const startCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
         });
+        activeStream = stream;
         setWebcamStream(stream);
-        setUseWebcam(true);
-        setCapturedImage(null);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
-        alert("Camera access unavailable or blocked. Using HYDRA AI synthetic camera feed.");
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (useWebcam && videoRef.current && webcamStream) {
-      videoRef.current.srcObject = webcamStream;
-    }
-    return () => {
-      if (webcamStream) {
-        webcamStream.getTracks().forEach(track => track.stop());
+        setErrorMessage("Webcam permissions not granted or camera busy. Click upload or check permissions.");
       }
     };
-  }, [useWebcam, webcamStream]);
 
-  // Capture Image & Trigger Vision AI Analysis
-  const handleTriggerScan = async (sampleObj = null) => {
+    startCamera();
+
+    return () => {
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  // Handle Photo Capture / Frame Scan
+  const handleTriggerScan = async () => {
     soundFx.playScanSound();
     setIsScanning(true);
+    setErrorMessage('');
+    setScanAnalysis(null);
 
     let imageBase64 = "";
 
-    // If using live webcam, capture frame from video stream
-    if (useWebcam && videoRef.current) {
+    // 1. Capture current frame from live HTML5 Video stream
+    if (videoRef.current && webcamStream && !capturedImage) {
       try {
         const canvas = document.createElement('canvas');
         canvas.width = videoRef.current.videoWidth || 640;
@@ -75,56 +64,72 @@ export default function VisionTab({ onCreateReport }) {
         imageBase64 = canvas.toDataURL('image/jpeg');
         setCapturedImage(imageBase64);
       } catch (err) {
-        console.warn("Could not capture frame from video:", err);
+        console.error("Frame capture error:", err);
       }
+    } else if (capturedImage) {
+      imageBase64 = capturedImage;
+    }
+
+    if (!imageBase64) {
+      setErrorMessage("No active camera frame found to analyze. Please upload or start camera.");
+      setIsScanning(false);
+      return;
     }
 
     try {
-      if (sampleObj) {
-        // Preset sample test path
-        setTimeout(() => {
-          setScanAnalysis(sampleObj);
-          setIsScanning(false);
-          soundFx.playSuccessSound();
-        }, 1200);
-      } else if (imageBase64) {
-        // Real-time camera Vision AI Analysis
-        const result = await queryGeminiVision(imageBase64);
-        if (result) {
+      // 2. Call Google Gemini Multimodal Vision API directly with frame data
+      const result = await queryGeminiVision(imageBase64);
+      
+      if (result) {
+        if (result.hazardType === 'None' || result.hazardType === 'none') {
           setScanAnalysis({
-            id: `HZ-${Math.floor(1000 + Math.random() * 9000)}`,
+            hazardType: "None",
+            title: "Clear Environment",
+            severity: "Low",
+            confidence: result.confidence || 99,
+            recommendation: "No anomalies, hazards, or public structures identified in this sector. Area is clean and safe.",
+            dept: "None",
+            image: imageBase64,
+            boxes: []
+          });
+        } else {
+          setScanAnalysis({
             hazardType: result.hazardType,
-            title: result.label || `${result.hazardType} Anomaly`,
-            severity: result.severity,
+            title: result.label || result.hazardType,
+            severity: result.severity || "Medium",
             confidence: result.confidence || 95.0,
             recommendation: result.recommendation,
-            dept: result.dept,
+            dept: result.dept || "GHMC Command Center",
             image: imageBase64,
             boxes: [
-              { label: result.label, confidence: result.confidence, x: 25, y: 30, width: 50, height: 45, color: result.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' }
+              { 
+                label: result.label, 
+                confidence: result.confidence, 
+                x: 20, 
+                y: 25, 
+                width: 60, 
+                height: 50, 
+                color: result.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' 
+              }
             ]
           });
         }
-        setIsScanning(false);
         soundFx.playSuccessSound();
       } else {
-        // Fallback standard presets
-        setTimeout(() => {
-          setScanAnalysis(selectedSample);
-          setIsScanning(false);
-          soundFx.playSuccessSound();
-        }, 1200);
+        setErrorMessage("Vision AI Engine Offline. Verify Google Gemini API Key configuration.");
       }
     } catch (err) {
-      console.error("AI Analysis failed:", err);
+      setErrorMessage("AI analysis failed or timed out. Please try again.");
+    } finally {
       setIsScanning(false);
     }
   };
 
   // Submit Civic Report Action
   const handleCreateCivicReport = () => {
+    if (!scanAnalysis || scanAnalysis.hazardType === 'None') return;
+
     soundFx.playSuccessSound();
-    
     confetti({
       particleCount: 100,
       spread: 80,
@@ -133,9 +138,9 @@ export default function VisionTab({ onCreateReport }) {
 
     const newReport = {
       id: `HZ-${Math.floor(1000 + Math.random() * 9000)}`,
-      title: `${scanAnalysis.title || scanAnalysis.hazardType} Detected via AI Vision`,
+      title: `${scanAnalysis.title} Detected via AI Vision`,
       category: scanAnalysis.hazardType,
-      location: "Live Camera Coordinate Sector, Hyderabad",
+      location: "Captured Sector, Cyberabad, Hyderabad",
       coords: [17.4325, 78.4071],
       severity: scanAnalysis.severity,
       confidence: scanAnalysis.confidence,
@@ -143,12 +148,20 @@ export default function VisionTab({ onCreateReport }) {
       dept: scanAnalysis.dept,
       date: new Date().toLocaleString(),
       upvotes: 1,
-      image: scanAnalysis.image || "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80",
+      image: scanAnalysis.image,
       description: scanAnalysis.recommendation
     };
 
     onCreateReport(newReport);
-    alert(`Live Anomaly Report ${newReport.id} successfully registered with ${scanAnalysis.dept}!`);
+    alert(`Live Report ${newReport.id} successfully registered with ${scanAnalysis.dept}!`);
+  };
+
+  // Reset Camera Viewfinder
+  const resetCamera = () => {
+    soundFx.playClickSound();
+    setCapturedImage(null);
+    setScanAnalysis(null);
+    setErrorMessage('');
   };
 
   return (
@@ -176,44 +189,24 @@ export default function VisionTab({ onCreateReport }) {
           >
             <Zap className="w-4 h-4" />
           </button>
-
-          {/* Webcam / Simulator Switch */}
-          <button
-            onClick={toggleWebcam}
-            className={`p-2.5 rounded-xl border transition-all ${
-              useWebcam 
-                ? 'bg-[#4ADE80]/20 border-[#4ADE80] text-[#4ADE80] shadow-[0_0_15px_rgba(74,222,128,0.2)]' 
-                : 'bg-white/5 border-white/10 text-gray-400'
-            }`}
-            title="Toggle Live WebCam Feed"
-          >
-            {useWebcam ? <Video className="w-4 h-4 text-[#4ADE80]" /> : <VideoOff className="w-4 h-4" />}
-          </button>
         </div>
       </div>
 
       {/* Viewfinder Panel */}
-      <div className="relative rounded-[32px] overflow-hidden border border-[#00E5FF]/40 shadow-[0_0_40px_rgba(0,229,255,0.2)] bg-black aspect-[4/3] flex items-center justify-center group">
+      <div className="relative rounded-[32px] overflow-hidden border border-[#00E5FF]/40 shadow-[0_0_40px_rgba(0,229,255,0.2)] bg-black aspect-[4/3] flex items-center justify-center">
         
         {/* Flash Effect Overlay */}
         {flashOn && <div className="absolute inset-0 bg-white/20 pointer-events-none z-30"></div>}
 
-        {/* Video stream or Captured Frame */}
-        {useWebcam ? (
-          capturedImage ? (
-            <img src={capturedImage} alt="Captured frame" className="w-full h-full object-cover" />
-          ) : (
-            <video 
-              ref={videoRef} 
-              autoPlay 
-              playsInline 
-              className="w-full h-full object-cover" 
-            />
-          )
+        {/* Video feed or Captured Frame */}
+        {capturedImage ? (
+          <img src={capturedImage} alt="Captured frame" className="w-full h-full object-cover" />
         ) : (
-          <img 
-            src={capturedImage || selectedSample.image} 
-            alt="AI Camera View" 
+          <video 
+            ref={videoRef} 
+            autoPlay 
+            playsInline 
+            muted
             className="w-full h-full object-cover" 
           />
         )}
@@ -224,10 +217,10 @@ export default function VisionTab({ onCreateReport }) {
             key={i}
             className="absolute border-2 rounded-xl backdrop-blur-[1px] animate-pulse pointer-events-none z-20"
             style={{
-              left: `${box.x || 25}%`,
-              top: `${box.y || 30}%`,
-              width: `${box.width || 50}%`,
-              height: `${box.height || 40}%`,
+              left: `${box.x}%`,
+              top: `${box.y}%`,
+              width: `${box.width}%`,
+              height: `${box.height}%`,
               borderColor: scanAnalysis.severity === 'Critical' ? '#FF4D6D' : '#00E5FF',
               boxShadow: `0 0 20px ${scanAnalysis.severity === 'Critical' ? '#FF4D6D' : '#00E5FF'}60`
             }}
@@ -236,7 +229,7 @@ export default function VisionTab({ onCreateReport }) {
               className="absolute -top-7 left-0 px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold text-black flex items-center gap-1 shadow-md whitespace-nowrap"
               style={{ backgroundColor: scanAnalysis.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' }}
             >
-              <span>{scanAnalysis.title || scanAnalysis.hazardType}</span>
+              <span>{scanAnalysis.title}</span>
               <span>[{scanAnalysis.confidence}%]</span>
             </div>
           </div>
@@ -260,8 +253,9 @@ export default function VisionTab({ onCreateReport }) {
         <div className="absolute bottom-4 right-4 w-6 h-6 border-b-2 border-r-2 border-[#00E5FF]"></div>
 
         <div className="absolute top-3 inset-x-0 flex justify-center space-x-2 px-4 z-20">
-          <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-[10px] font-mono text-emerald-400">
-            {useWebcam ? "LIVE SATELLITE RADAR CONNECTED" : "SYNTHETIC SIMULATOR NODE"}
+          <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-[10px] font-mono text-emerald-400 flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            ACTIVE HYDERABAD NEURAL CAMERA FEED
           </span>
         </div>
 
@@ -278,7 +272,8 @@ export default function VisionTab({ onCreateReport }) {
                 if (file) {
                   const url = URL.createObjectURL(file);
                   setCapturedImage(url);
-                  handleTriggerScan();
+                  setScanAnalysis(null);
+                  setErrorMessage('');
                 }
               }}
             />
@@ -297,96 +292,82 @@ export default function VisionTab({ onCreateReport }) {
 
           {/* Rescan / Reset */}
           <button
-            onClick={() => { setCapturedImage(null); handleTriggerScan(); }}
+            onClick={resetCamera}
             className="p-3 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white transition-all"
-            title="Re-scan Feed"
+            title="Reset Camera View"
           >
             <RefreshCw className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Preset Selector */}
-      <div className="space-y-1.5">
-        <label className="text-[11px] font-mono text-gray-400 uppercase tracking-wider">
-          SIMULATOR HAZARD PRESETS:
-        </label>
-        <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-none">
-          {MOCK_VISION_SAMPLES.map((sample) => (
-            <button
-              key={sample.id}
-              onClick={() => {
-                setSelectedSample(sample);
-                setCapturedImage(null);
-                handleTriggerScan(sample);
-              }}
-              className={`px-3 py-1.5 rounded-2xl text-xs font-semibold whitespace-nowrap transition-all border flex items-center space-x-1.5 ${
-                selectedSample.id === sample.id
-                  ? 'bg-[#00E5FF]/20 border-[#00E5FF] text-[#00E5FF] shadow-[0_0_15px_rgba(0,229,255,0.3)]'
-                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'
-              }`}
-            >
-              <span>{sample.name}</span>
-            </button>
-          ))}
+      {/* Error / Status Alert Banner */}
+      {errorMessage && (
+        <div className="p-3 rounded-2xl bg-[#FF4D6D]/15 border border-[#FF4D6D]/40 text-xs text-[#FF4D6D] flex items-center space-x-2">
+          <AlertOctagon className="w-4 h-4 flex-shrink-0 animate-bounce" />
+          <span>{errorMessage}</span>
         </div>
-      </div>
+      )}
 
       {/* Anomaly Analysis Card Result */}
-      <div className="glass-card-cyan p-5 relative space-y-4">
-        <div className="flex justify-between items-start">
-          <div>
-            <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> LIVE SPATIAL RADAR DETAILS
-            </span>
-            <h3 className="text-lg font-extrabold text-white mt-0.5">{scanAnalysis.title || scanAnalysis.hazardType}</h3>
-          </div>
-
-          <div className="text-right">
-            <span className="text-[10px] text-gray-400 font-mono">MATCH CONFIDENCE</span>
-            <p className="text-xl font-extrabold text-[#4ADE80] font-mono">{scanAnalysis.confidence}%</p>
-          </div>
-        </div>
-
-        {/* Severity & Department Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
-            <p className="text-[10px] font-mono text-gray-400 uppercase">SEVERITY INDEX</p>
-            <div className="flex items-center space-x-2 mt-1">
-              <span className={`w-3 h-3 rounded-full ${
-                scanAnalysis.severity === 'Critical' ? 'bg-[#FF4D6D] animate-ping' : 'bg-[#FFC857]'
-              }`}></span>
-              <span className={`text-sm font-bold ${
-                scanAnalysis.severity === 'Critical' ? 'text-[#FF4D6D]' : 'text-[#FFC857]'
-              }`}>
-                {scanAnalysis.severity}
+      {scanAnalysis && (
+        <div className="glass-card-cyan p-5 relative space-y-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" /> LIVE CAMERA TELEMETRY DETAILS
               </span>
+              <h3 className="text-lg font-extrabold text-white mt-0.5">{scanAnalysis.title}</h3>
+            </div>
+
+            <div className="text-right">
+              <span className="text-[10px] text-gray-400 font-mono">MATCH CONFIDENCE</span>
+              <p className="text-xl font-extrabold text-[#4ADE80] font-mono">{scanAnalysis.confidence}%</p>
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
-            <p className="text-[10px] font-mono text-gray-400 uppercase">TARGET DEPARTMENT</p>
-            <p className="text-xs font-bold text-white mt-1 truncate">{scanAnalysis.dept}</p>
+          {/* Severity & Department Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
+              <p className="text-[10px] font-mono text-gray-400 uppercase">SEVERITY INDEX</p>
+              <div className="flex items-center space-x-2 mt-1">
+                <span className={`w-3 h-3 rounded-full ${
+                  scanAnalysis.severity === 'Critical' ? 'bg-[#FF4D6D] animate-ping' : 'bg-[#FFC857]'
+                }`}></span>
+                <span className={`text-sm font-bold ${
+                  scanAnalysis.severity === 'Critical' ? 'text-[#FF4D6D]' : 'text-[#FFC857]'
+                }`}>
+                  {scanAnalysis.severity}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
+              <p className="text-[10px] font-mono text-gray-400 uppercase">TARGET DEPARTMENT</p>
+              <p className="text-xs font-bold text-white mt-1 truncate">{scanAnalysis.dept}</p>
+            </div>
           </div>
-        </div>
 
-        {/* Live recommendations / bus arrival info */}
-        <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs space-y-1">
-          <p className="text-[10px] font-mono text-[#00E5FF] uppercase font-bold flex items-center gap-1">
-            <Info className="w-3.5 h-3.5" /> {scanAnalysis.hazardType === 'Bus Stand' ? 'UPCOMING DEPARTURES & ARRIVALS:' : 'AI MITIGATION ACTION RECOMMENDATION:'}
-          </p>
-          <p className="text-gray-300 leading-relaxed whitespace-pre-line">{scanAnalysis.recommendation}</p>
-        </div>
+          {/* Live recommendations / bus arrival info */}
+          <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs space-y-1">
+            <p className="text-[10px] font-mono text-[#00E5FF] uppercase font-bold flex items-center gap-1">
+              <Info className="w-3.5 h-3.5" /> {scanAnalysis.hazardType === 'Bus Stand' ? 'UPCOMING DEPARTURES & ARRIVALS:' : 'AI MITIGATION ACTION RECOMMENDATION:'}
+            </p>
+            <p className="text-gray-300 leading-relaxed whitespace-pre-line">{scanAnalysis.recommendation}</p>
+          </div>
 
-        {/* Action Button: Create Civic Report */}
-        <button
-          onClick={handleCreateCivicReport}
-          className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#00E5FF] via-[#4ADE80] to-[#00E5FF] text-black font-extrabold text-sm shadow-[0_0_25px_rgba(0,229,255,0.4)] hover:brightness-110 active:scale-98 transition-all flex items-center justify-center space-x-2"
-        >
-          <span>{scanAnalysis.hazardType === 'Bus Stand' ? 'SYNC RTC TRANSIT SCHEDULE' : 'DISPATCH OFFICIAL CIVIC REPORT'}</span>
-          <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-        </button>
-      </div>
+          {/* Action Button: Create Civic Report */}
+          {scanAnalysis.hazardType !== 'None' && (
+            <button
+              onClick={handleCreateCivicReport}
+              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#00E5FF] via-[#4ADE80] to-[#00E5FF] text-black font-extrabold text-sm shadow-[0_0_25px_rgba(0,229,255,0.4)] hover:brightness-110 active:scale-98 transition-all flex items-center justify-center space-x-2"
+            >
+              <span>{scanAnalysis.hazardType === 'Bus Stand' ? 'SYNC RTC TRANSIT SCHEDULE' : 'DISPATCH OFFICIAL CIVIC REPORT'}</span>
+              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          )}
+        </div>
+      )}
 
     </div>
   );
