@@ -7,8 +7,10 @@ import {
 import { MOCK_USER, HYDERABAD_AQI, AI_INSIGHTS, MOCK_HAZARDS } from '../utils/mockData';
 import { soundFx } from '../utils/audioSynth';
 
-export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency }) {
+export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency, currentUser }) {
   const [stats, setStats] = useState({ scans: 0, reports: 0, hazards: 0, healthScore: 0 });
+
+  const user = currentUser || MOCK_USER;
 
   // Animate stats counter on tab load
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency }) 
               </span>
             </div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">
-              Good Morning, <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-[#00E5FF] to-[#4ADE80]">{MOCK_USER.name}</span>
+              Good Morning, <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-[#00E5FF] to-[#4ADE80]">{user.name}</span>
             </h2>
             <p className="text-xs text-gray-400 mt-1">
               Hyderabad Sentinel ID: <span className="text-gray-200 font-mono">HYD-9042-SENT</span>
@@ -54,7 +56,7 @@ export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency }) 
 
           <div className="w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-tr from-[#00E5FF] to-[#4ADE80] shadow-lg shadow-[#00E5FF]/20">
             <img 
-              src={MOCK_USER.avatar} 
+              src={user.avatar || MOCK_USER.avatar} 
               alt="Profile" 
               className="w-full h-full object-cover rounded-[14px]" 
             />
@@ -98,161 +100,89 @@ export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency }) 
 
         <div className="grid grid-cols-3 gap-2">
           {/* Temperature */}
-          <div className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center">
-            <p className="text-[10px] text-gray-400 uppercase font-mono">Temperature</p>
-            <p className="text-xl font-extrabold text-white mt-1">{HYDERABAD_AQI.temp}°C</p>
-            <p className="text-[9px] text-emerald-400 mt-0.5">Feels {HYDERABAD_AQI.feelsLike}°C</p>
+          <div className="p-3 rounded-2xl bg-black/40 border border-white/5 text-center">
+            <p className="text-[10px] text-gray-400 font-mono uppercase">TEMP</p>
+            <p className="text-lg font-extrabold text-white font-mono mt-0.5">{HYDERABAD_AQI.temp}°C</p>
+            <p className="text-[9px] text-[#FFC857] mt-0.5">RealFeel 34°</p>
           </div>
 
           {/* Air Quality Index */}
-          <div className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center relative overflow-hidden">
-            <p className="text-[10px] text-gray-400 uppercase font-mono">AQI Index</p>
-            <p className="text-xl font-extrabold text-[#4ADE80] mt-1">{HYDERABAD_AQI.score}</p>
+          <div className="p-3 rounded-2xl bg-black/40 border border-white/5 text-center">
+            <p className="text-[10px] text-gray-400 font-mono uppercase">AQI INDEX</p>
+            <p className="text-lg font-extrabold text-emerald-400 font-mono mt-0.5">{HYDERABAD_AQI.score}</p>
             <p className="text-[9px] text-emerald-400 mt-0.5">{HYDERABAD_AQI.status}</p>
           </div>
 
-          {/* Rainfall Probability */}
-          <div className="bg-white/5 rounded-2xl p-3 border border-white/5 text-center">
-            <p className="text-[10px] text-gray-400 uppercase font-mono">Rain Risk</p>
-            <p className="text-xl font-extrabold text-[#00E5FF] mt-1">78%</p>
-            <p className="text-[9px] text-cyan-400 mt-0.5">In 2 Hours</p>
+          {/* Humidity */}
+          <div className="p-3 rounded-2xl bg-black/40 border border-white/5 text-center">
+            <p className="text-[10px] text-gray-400 font-mono uppercase">HUMIDITY</p>
+            <p className="text-lg font-extrabold text-[#00E5FF] font-mono mt-0.5">{HYDERABAD_AQI.humidity}%</p>
+            <p className="text-[9px] text-gray-400 mt-0.5">Monsoon Surge</p>
           </div>
-        </div>
-
-        {/* Severe Heat Warning Pill */}
-        <div className="mt-3 p-2.5 rounded-2xl bg-[#FFC857]/10 border border-[#FFC857]/30 flex items-center space-x-2 text-xs text-[#FFC857]">
-          <Flame className="w-4 h-4 flex-shrink-0 animate-pulse text-[#FFC857]" />
-          <span className="text-[11px] truncate">{HYDERABAD_AQI.heatWarning}</span>
         </div>
       </div>
 
-      {/* 3. Animated Statistics Grid */}
+      {/* 3. Realtime City Health Gauge Metrics */}
       <div className="grid grid-cols-2 gap-3">
-        
-        {/* Scans Today */}
-        <div className="glass-panel p-4 relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono text-gray-400 uppercase">Today's Scans</span>
-            <div className="p-1.5 rounded-xl bg-[#00E5FF]/10 text-[#00E5FF]">
-              <Eye className="w-4 h-4" />
-            </div>
+        <div className="glass-panel p-4 flex items-center space-x-3">
+          <div className="p-3 rounded-2xl bg-[#00E5FF]/10 border border-[#00E5FF]/30 text-[#00E5FF]">
+            <Activity className="w-5 h-5 animate-pulse" />
           </div>
-          <p className="text-2xl font-extrabold text-white mt-2 font-mono">{stats.scans}</p>
-          <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
-            <TrendingUp className="w-3 h-3" /> +24% vs yesterday
-          </p>
+          <div>
+            <p className="text-[10px] text-gray-400 font-mono uppercase">HYD HEALTH SCORE</p>
+            <p className="text-xl font-extrabold text-white font-mono">{stats.healthScore}%</p>
+            <p className="text-[10px] text-emerald-400 flex items-center gap-1 font-mono">
+              <TrendingUp className="w-3 h-3" /> Optimal Operations
+            </p>
+          </div>
         </div>
 
-        {/* Reports Filed */}
-        <div className="glass-panel p-4 relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono text-gray-400 uppercase">Reports Filed</span>
-            <div className="p-1.5 rounded-xl bg-[#4ADE80]/10 text-[#4ADE80]">
-              <CheckCircle className="w-4 h-4" />
-            </div>
+        <div className="glass-panel p-4 flex items-center space-x-3">
+          <div className="p-3 rounded-2xl bg-[#4ADE80]/10 border border-[#4ADE80]/30 text-[#4ADE80]">
+            <Eye className="w-5 h-5" />
           </div>
-          <p className="text-2xl font-extrabold text-white mt-2 font-mono">{stats.reports}</p>
-          <p className="text-[10px] text-emerald-400 mt-1 flex items-center gap-1">
-            <Zap className="w-3 h-3" /> 21 Verified & Resolved
-          </p>
-        </div>
-
-        {/* Hazards Detected */}
-        <div className="glass-panel p-4 relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono text-gray-400 uppercase">Hazards Flagged</span>
-            <div className="p-1.5 rounded-xl bg-[#FF4D6D]/10 text-[#FF4D6D]">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
+          <div>
+            <p className="text-[10px] text-gray-400 font-mono uppercase">SCANS PERFORMED</p>
+            <p className="text-xl font-extrabold text-white font-mono">{stats.scans}</p>
+            <p className="text-[10px] text-gray-400 font-mono">Today across 30 circles</p>
           </div>
-          <p className="text-2xl font-extrabold text-[#FF4D6D] mt-2 font-mono">{stats.hazards}</p>
-          <p className="text-[10px] text-gray-400 mt-1">12 Pending Action</p>
-        </div>
-
-        {/* City Health Score */}
-        <div className="glass-panel p-4 relative overflow-hidden">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono text-gray-400 uppercase">City Health Index</span>
-            <div className="p-1.5 rounded-xl bg-purple-500/10 text-purple-400">
-              <Activity className="w-4 h-4" />
-            </div>
-          </div>
-          <p className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#00E5FF] to-[#4ADE80] mt-2 font-mono">
-            {stats.healthScore}%
-          </p>
-          <p className="text-[10px] text-emerald-400 mt-1">Optimal Sector Status</p>
-        </div>
-
-      </div>
-
-      {/* 4. AI Insights Card */}
-      <div className="glass-card-cyan p-4 relative">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center space-x-2">
-            <Sparkles className="w-4 h-4 text-[#00E5FF] animate-spin" />
-            <h3 className="text-xs font-bold text-[#00E5FF] uppercase font-mono tracking-wider">HYDRA AI INSIGHT ENGINE</h3>
-          </div>
-          <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#00E5FF]/20 text-[#00E5FF] font-mono">REALTIME</span>
-        </div>
-
-        <div className="space-y-2 mt-3">
-          {AI_INSIGHTS.map((insight) => (
-            <div key={insight.id} className="p-2.5 rounded-2xl bg-black/40 border border-white/5 text-xs flex items-start space-x-3">
-              <div className={`p-1.5 rounded-xl mt-0.5 ${
-                insight.severity === 'danger' ? 'bg-[#FF4D6D]/20 text-[#FF4D6D]' :
-                insight.severity === 'warning' ? 'bg-[#FFC857]/20 text-[#FFC857]' : 'bg-[#4ADE80]/20 text-[#4ADE80]'
-              }`}>
-                <Radio className="w-3.5 h-3.5 animate-pulse" />
-              </div>
-              <div className="flex-1">
-                <div className="flex justify-between items-center">
-                  <span className="font-semibold text-white text-xs">{insight.title}</span>
-                  <span className="text-[9px] text-gray-500 font-mono">{insight.time}</span>
-                </div>
-                <p className="text-[11px] text-gray-300 mt-0.5 leading-snug">{insight.description}</p>
-                <span className="text-[9px] text-[#00E5FF] font-mono mt-1 inline-block">Dept: {insight.dept}</span>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
-      {/* 5. Live City Activity & Hazard Feed */}
-      <div className="glass-panel p-4">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-[#4ADE80]" /> NEARBY HYDERABAD HAZARDS
+      {/* 4. Live AI Predictive Urban Insights Carousel */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center px-1">
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-[#00E5FF]" /> AI PREDICTIVE URBAN TELEMETRY
           </h3>
-          <button 
-            onClick={() => onNavigate('maps')}
-            className="text-[11px] text-[#00E5FF] hover:underline"
-          >
-            View Map
-          </button>
+          <span className="text-[10px] text-[#00E5FF] font-mono">REALTIME FEED</span>
         </div>
 
         <div className="space-y-2.5">
-          {MOCK_HAZARDS.slice(0, 3).map((hazard) => (
+          {AI_INSIGHTS.map((insight) => (
             <div 
-              key={hazard.id} 
-              onClick={() => onNavigate('maps')}
-              className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 flex items-center justify-between transition-all cursor-pointer"
+              key={insight.id}
+              className="p-3.5 rounded-2xl bg-white/5 border border-white/10 hover:border-[#00E5FF]/50 transition-all flex items-start space-x-3"
             >
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-xl overflow-hidden bg-black flex-shrink-0 border border-white/10">
-                  <img src={hazard.image} alt={hazard.title} className="w-full h-full object-cover" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white leading-tight">{hazard.title}</h4>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{hazard.location}</p>
-                  <span className={`text-[9px] px-2 py-0.5 rounded-full inline-block mt-1 ${
-                    hazard.severity === 'Critical' ? 'bg-[#FF4D6D]/20 text-[#FF4D6D]' : 'bg-[#FFC857]/20 text-[#FFC857]'
-                  }`}>
-                    {hazard.severity} Severity • {hazard.confidence}% AI Match
+              <div className="p-2 rounded-xl bg-black/40 border border-white/10 text-[#00E5FF] flex-shrink-0 mt-0.5">
+                <Radio className="w-4 h-4 animate-pulse" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-bold text-white truncate">{insight.title}</h4>
+                  <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#00E5FF]/20 text-[#00E5FF] border border-[#00E5FF]/30">
+                    {insight.confidence}% Match
                   </span>
                 </div>
+                <p className="text-[11px] text-gray-300 mt-1 leading-snug">{insight.desc}</p>
+                <div className="flex items-center space-x-3 mt-2 text-[10px] text-gray-400 font-mono">
+                  <span className="flex items-center gap-1 text-[#00E5FF]">
+                    <MapPin className="w-3 h-3" /> {insight.area}
+                  </span>
+                  <span>•</span>
+                  <span>Impact: {insight.impact}</span>
+                </div>
               </div>
-              <ChevronRight className="w-4 h-4 text-gray-500" />
             </div>
           ))}
         </div>

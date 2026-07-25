@@ -66,6 +66,7 @@ export default function App() {
           <main className="flex-1 overflow-hidden flex flex-col relative">
             {activeTab === 'home' && (
               <HomeTab 
+                currentUser={currentUser}
                 onNavigate={(tab) => setActiveTab(tab)}
                 onOpenWeather={() => setShowWeather(true)}
                 onOpenEmergency={() => setShowEmergencyModal(true)}
