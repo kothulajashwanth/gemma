@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { 
   User, ShieldCheck, Award, Eye, FileText, CheckCircle2, 
-  Moon, Volume2, Globe, Lock, LogOut, ChevronRight, Sparkles, Cpu, Bell
+  Moon, Volume2, Globe, Lock, LogOut, ChevronRight, Sparkles, Cpu, Bell, LogIn
 } from 'lucide-react';
 import { MOCK_USER } from '../utils/mockData';
 import { soundFx } from '../utils/audioSynth';
 
-export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout }) {
+export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, currentUser, onOpenAuth }) {
   const [oledMode, setOledMode] = useState(false);
   const [language, setLanguage] = useState('English');
 
@@ -15,6 +15,8 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout }) 
     setSoundEnabled(newState);
     if (newState) soundFx.playClickSound();
   };
+
+  const user = currentUser || MOCK_USER;
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8 select-none">
@@ -27,7 +29,7 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout }) 
         <div className="relative w-20 h-20 mx-auto mb-3">
           <div className="absolute -inset-2 bg-gradient-to-tr from-[#00E5FF] to-[#4ADE80] rounded-full blur-md opacity-70 animate-pulse"></div>
           <img 
-            src={MOCK_USER.avatar} 
+            src={user.avatar || MOCK_USER.avatar} 
             alt="Profile Avatar" 
             className="w-full h-full object-cover rounded-full border-2 border-white relative z-10" 
           />
@@ -36,12 +38,23 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout }) 
           </div>
         </div>
 
-        <h2 className="text-xl font-extrabold text-white">{MOCK_USER.name}</h2>
-        <p className="text-xs text-[#00E5FF] font-mono mt-0.5">{MOCK_USER.level}</p>
-        <p className="text-[11px] text-gray-400 font-mono">{MOCK_USER.rank}</p>
+        <h2 className="text-xl font-extrabold text-white">{user.name}</h2>
+        <p className="text-xs text-[#00E5FF] font-mono mt-0.5">{user.role || MOCK_USER.level}</p>
+        <p className="text-[11px] text-gray-400 font-mono">{user.email || MOCK_USER.rank}</p>
+
+        {/* Clerk Auth Quick Badge */}
+        <div className="mt-3 flex justify-center">
+          <button
+            onClick={() => { soundFx.playClickSound(); onOpenAuth(); }}
+            className="px-3 py-1 rounded-full bg-[#00E5FF]/10 border border-[#00E5FF]/40 text-[#00E5FF] text-[10px] font-mono flex items-center gap-1.5 hover:bg-[#00E5FF]/20 transition-all"
+          >
+            <LogIn className="w-3 h-3" />
+            <span>AUTHENTICATE VIA CLERK</span>
+          </button>
+        </div>
 
         {/* Radial Citizen Score Gauge */}
-        <div className="mt-5 p-4 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-around">
+        <div className="mt-4 p-4 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-around">
           <div className="text-left">
             <span className="text-[10px] font-mono text-gray-400 uppercase">CITIZEN IMPACT SCORE</span>
             <div className="flex items-baseline space-x-1">
@@ -151,7 +164,7 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout }) 
           <div className="p-3 rounded-2xl bg-white/5 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <Globe className="w-4 h-4 text-purple-400" />
-              <span className="text-xs text-white">Interface Language</span>
+              <span className="text-xs text-[#00E5FF]">Interface Language</span>
             </div>
             <select
               value={language}

@@ -11,14 +11,15 @@ import ProfileTab from './components/ProfileTab';
 import WeatherModal from './components/WeatherModal';
 import VoiceAssistantModal from './components/VoiceAssistantModal';
 import NotificationDrawer from './components/NotificationDrawer';
-import { MOCK_HAZARDS } from './utils/mockData';
+import AuthModal from './components/AuthModal';
+import { MOCK_HAZARDS, MOCK_USER } from './utils/mockData';
 import { soundFx } from './utils/audioSynth';
 import { syncReportToSupabase } from './utils/supabaseClient';
 import { AlertOctagon, PhoneCall, ShieldAlert, X } from 'lucide-react';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [activeTab, setActiveTab] = useState('home'); // 'home' | 'vision' | 'maps' | 'reports' | 'profile'
+  const [activeTab, setActiveTab] = useState('home');
   const [soundEnabled, setSoundEnabled] = useState(true);
 
   // Modals state
@@ -26,13 +27,14 @@ export default function App() {
   const [showVoiceAssistant, setShowVoiceAssistant] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [currentUser, setCurrentUser] = useState(MOCK_USER);
 
   // Live Civic Reports State
   const [reportsList, setReportsList] = useState(MOCK_HAZARDS);
 
   const handleCreateReport = async (newReport) => {
     setReportsList(prev => [newReport, ...prev]);
-    // Synchronize asynchronously with Supabase Cloud DB
     syncReportToSupabase(newReport);
     setActiveTab('reports');
   };
@@ -86,7 +88,9 @@ export default function App() {
               <ProfileTab 
                 soundEnabled={soundEnabled} 
                 setSoundEnabled={setSoundEnabled}
-                onLogout={() => setShowSplash(true)}
+                currentUser={currentUser}
+                onOpenAuth={() => setShowAuthModal(true)}
+                onLogout={() => { setCurrentUser(null); setShowAuthModal(true); }}
               />
             )}
           </main>
@@ -113,6 +117,15 @@ export default function App() {
           {showNotifications && (
             <NotificationDrawer onClose={() => setShowNotifications(false)} />
           )}
+
+          <AuthModal 
+            isOpen={showAuthModal}
+            onClose={() => setShowAuthModal(false)}
+            onLoginSuccess={(user) => {
+              setCurrentUser(user);
+              alert(`Authenticated as ${user.name} via Clerk!`);
+            }}
+          />
 
           {/* Emergency SOS Warning Modal */}
           {showEmergencyModal && (
