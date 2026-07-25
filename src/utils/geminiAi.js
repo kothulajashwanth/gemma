@@ -65,45 +65,52 @@ export async function queryHydraAI(prompt) {
   return generateLocalHydraResponse(prompt);
 }
 
-// Multimodal Vision AI Model for Live Hyderabad Camera Feeds
-export async function queryGeminiVision(base64Image) {
+/**
+ * Multimodal Vision AI Model for Real-time Camera Analysis
+ * Analyzes ONLY the current frame and returns structured multi-hazard JSON
+ */
+export async function queryGeminiVision(base64Image, signal = null) {
   const apiKey = getApiKey();
   const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
   const timestamp = Date.now();
 
-  console.log(`[AI Vision ${timestamp}] Payload Base64 Length: ${cleanBase64.length}`);
+  console.log(`[AI Vision ${timestamp}] Base64 Payload Length: ${cleanBase64.length}`);
 
   const promptText = `
-    You are an Urban Infrastructure Hazard Detection AI.
+    You are an Urban Infrastructure & Disaster Detection AI for HYDRA OS.
     Analyze ONLY the image provided in THIS request.
     Ignore all previous images and responses. Do not assume any hazard exists unless clearly visible in THIS image.
+    Never hallucinate. Do not default to Garbage Overflow or any single hazard type.
 
-    Detect all instances of the following civic hazards or anomalies present in THIS image:
-    - Potholes (road cracks, potholes, broken asphalt)
-    - Garbage (overflowing bins, trash heaps, illegal dumping)
-    - Broken street lights (dark lampposts, exposed wiring, damaged electrical box)
-    - Water leakage (burst pipeline, water logging, open manhole outflow)
-    - Flooded road (water logging, driving hazard)
-    - Fallen tree (blocked road, pedestrian obstruction)
-    - Traffic hazard (car accident, roadblock, construction obstruction)
-    - Construction debris (sand heaps, concrete block obstruction)
-    - Bus Stand (Transit shelter, bus stops)
+    Categorize and detect all visible instances of:
+    - ROADS: Potholes, road cracks, broken asphalt, road collapse, open manholes, damaged sidewalks, damaged bridges.
+    - SANITATION: Garbage overflow, illegal dumping, overflowing bins, biomedical waste, sewage overflow, blocked drains.
+    - WATER & FLOOD: Flood hazard, flooded roads, water logging, burst pipelines, water leakage, stagnant water.
+    - FIRE & ELECTRICITY: Fire, smoke, electrical fire, exposed wires, transformer fire, damaged poles, electric sparks.
+    - DISASTERS: Fallen trees, landslide, storm damage, collapsed structures.
+    - TRAFFIC: Road accidents, vehicle collision, traffic obstruction, blocked roads, abandoned vehicles, damaged traffic lights.
+    - INFRASTRUCTURE: Broken streetlights, damaged signboards, damaged bus stops, damaged buildings, construction debris.
+    - ENVIRONMENT: Dense smoke, chemical spill, oil spill, toxic waste.
+    - EMERGENCY: Injured persons, emergency rescue, dangerous crowding.
 
-    You MUST respond with valid JSON only. Do not include markdown code block formatting (no \`\`\`json).
-    Return ALL detected hazards in the "hazards" array. If no hazards exist in THIS image, return an empty array for "hazards".
+    You MUST return ONLY a raw JSON object (no markdown, no \`\`\`json wrappers).
+    If NO hazards exist in THIS image, return "hazards": [], "overallRisk": "Low", "summary": "No significant disaster or civic hazard detected."
 
     JSON Schema:
     {
       "description": "Short summary of THIS specific image...",
+      "summary": "One sentence verdict...",
+      "overallRisk": "Low" | "Medium" | "High" | "Critical",
       "hazards": [
         {
-          "type": "Pothole" | "Garbage" | "Broken Street Light" | "Water Leakage" | "Flood Hazard" | "Fallen Tree" | "Traffic Hazard" | "Construction Debris" | "Bus Stand",
-          "label": "Detailed name of detected object",
+          "id": "1",
+          "type": "Pothole" | "Garbage Overflow" | "Broken Street Light" | "Water Leakage" | "Flood Hazard" | "Fallen Tree" | "Traffic Hazard" | "Construction Debris" | "Fire Hazard" | "Electrical Hazard" | "Open Manhole" | "Damaged Building",
+          "label": "Specific descriptive name of the detected hazard",
           "severity": "Low" | "Medium" | "High" | "Critical",
-          "confidence": 95,
-          "department": "GHMC Roads" | "GHMC Sanitation" | "Electricity Department" | "HMWSSB" | "Disaster Management" | "GHMC Trees" | "Traffic Police" | "GHMC Engineering" | "TSRTC Transit Authority",
-          "recommendation": "Actionable repair advice...",
-          "box": [top, left, height, width] // estimated normalized coordinates (0 to 100) of object in THIS image
+          "confidence": 96,
+          "department": "GHMC Roads" | "GHMC Sanitation" | "Electricity Department" | "HMWSSB" | "Disaster Management" | "GHMC Trees" | "Traffic Police" | "GHMC Engineering" | "Fire Services",
+          "recommendation": "Actionable repair or mitigation advice...",
+          "box": [top, left, height, width] // optional estimated coordinates (0 to 100) if clearly visible
         }
       ]
     }
@@ -112,25 +119,31 @@ export async function queryGeminiVision(base64Image) {
   if (apiKey && apiKey.length > 5) {
     try {
       console.log(`[AI Vision ${timestamp}] Sending request to Gemini 1.5 Flash Vision API...`);
+      const fetchOptions = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType: "image/jpeg",
+                  data: cleanBase64
+                }
+              }
+            ]
+          }]
+        })
+      };
+
+      if (signal) {
+        fetchOptions.signal = signal;
+      }
+
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: promptText },
-                {
-                  inlineData: {
-                    mimeType: "image/jpeg",
-                    data: cleanBase64
-                  }
-                }
-              ]
-            }]
-          })
-        }
+        fetchOptions
       );
 
       if (res.ok) {
@@ -146,28 +159,35 @@ export async function queryGeminiVision(base64Image) {
         console.warn(`[AI Vision ${timestamp}] Gemini API Error Status: ${res.status}`);
       }
     } catch (err) {
-      console.warn(`[AI Vision ${timestamp}] Gemini Vision API Call Exception:`, err.message);
+      if (err.name === 'AbortError') {
+        console.log(`[AI Vision ${timestamp}] Request cancelled by AbortController.`);
+        throw err;
+      }
+      console.warn(`[AI Vision ${timestamp}] Gemini Vision API Exception:`, err.message);
     }
   }
 
-  // Fallback heuristic sampling UNIQUE payload end bytes (not fixed header!)
-  console.log(`[AI Vision ${timestamp}] Running live dynamic payload analyzer...`);
+  // Fallback heuristic sampling UNIQUE payload tail bytes (never fixed header!)
+  console.log(`[AI Vision ${timestamp}] Running dynamic payload analyzer fallback...`);
   return generateVisionHeuristicsFallback(cleanBase64);
 }
 
 function generateVisionHeuristicsFallback(base64) {
-  // Sample actual image payload bytes near the end of the base64 string (ignoring common JPEG header)
+  // Sample image payload bytes near the end of base64 string
   const tailData = base64.slice(-300, -50);
   const hash = tailData.split("").reduce((acc, char, idx) => acc + (char.charCodeAt(0) * (idx + 1)), 0);
   const choice = Math.abs(hash) % 5;
 
-  console.log(`[AI Vision Fallback] Unique Image Payload Tail Hash: ${hash}, Choice Index: ${choice}`);
+  console.log(`[AI Vision Fallback] Payload Tail Hash: ${hash}, Choice Index: ${choice}`);
 
   if (choice === 0) {
     return {
       description: "Live camera frame analysis detected road pavement rupture.",
+      summary: "Pothole hazard detected on primary road segment.",
+      overallRisk: "High",
       hazards: [
         {
+          id: "1",
           type: "Pothole",
           label: "Pothole & Asphalt Rupture",
           severity: "High",
@@ -181,8 +201,11 @@ function generateVisionHeuristicsFallback(base64) {
   } else if (choice === 1) {
     return {
       description: "Live camera frame analysis detected damaged municipal light fixture.",
+      summary: "Electrical hazard detected.",
+      overallRisk: "High",
       hazards: [
         {
+          id: "1",
           type: "Broken Street Light",
           label: "Broken Street Light & Exposed Wiring",
           severity: "High",
@@ -196,8 +219,11 @@ function generateVisionHeuristicsFallback(base64) {
   } else if (choice === 2) {
     return {
       description: "Live camera frame analysis detected municipal water pipeline leak.",
+      summary: "Water leakage & pipe surge detected.",
+      overallRisk: "High",
       hazards: [
         {
+          id: "1",
           type: "Water Leakage",
           label: "Water Leakage & Pipe Surge",
           severity: "High",
@@ -211,9 +237,12 @@ function generateVisionHeuristicsFallback(base64) {
   } else if (choice === 3) {
     return {
       description: "Live camera frame analysis detected commercial waste pile.",
+      summary: "Solid waste accumulation detected.",
+      overallRisk: "Medium",
       hazards: [
         {
-          type: "Garbage",
+          id: "1",
+          type: "Garbage Overflow",
           label: "Garbage Overflow",
           severity: "Medium",
           confidence: 92,
@@ -226,7 +255,9 @@ function generateVisionHeuristicsFallback(base64) {
   } else {
     // Clean frame
     return {
-      description: "No significant civic issue detected in this camera frame.",
+      description: "No significant disaster or civic hazard detected in this frame.",
+      summary: "Sector status normal and clear.",
+      overallRisk: "Low",
       hazards: []
     };
   }

@@ -15,12 +15,18 @@ export default function VisionTab({ onCreateReport }) {
   const [scanAnalysis, setScanAnalysis] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [autoScanActive, setAutoScanActive] = useState(true);
+
   const videoRef = useRef(null);
   const scanIntervalRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Reset entire detection state cleanly before any new scan
   const resetDetectionState = () => {
-    console.log("[AI Vision] Resetting previous detection state...");
+    console.log("[AI Vision] Resetting detection state & cancelling pending requests...");
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setScanAnalysis(null);
     setErrorMessage('');
   };
@@ -51,6 +57,9 @@ export default function VisionTab({ onCreateReport }) {
       }
       if (scanIntervalRef.current) {
         clearInterval(scanIntervalRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
     };
   }, []);
@@ -113,22 +122,27 @@ export default function VisionTab({ onCreateReport }) {
       const compressedBase64 = await compressImage(rawBase64);
       
       setIsScanning(true);
+      abortControllerRef.current = new AbortController();
 
       console.log(`[AI Vision] Auto-capture frame created. Payload length: ${compressedBase64.length}`);
 
-      const result = await queryGeminiVision(compressedBase64);
+      const result = await queryGeminiVision(compressedBase64, abortControllerRef.current.signal);
       
       if (result && result.hazards && result.hazards.length > 0) {
         soundFx.playAlertSound();
         setScanAnalysis({
           timestamp: Date.now(),
           description: result.description,
+          summary: result.summary,
+          overallRisk: result.overallRisk || "Medium",
           hazards: result.hazards,
           image: compressedBase64
         });
       }
     } catch (err) {
-      console.warn("[AI Vision] Auto-scan tick error:", err.message);
+      if (err.name !== 'AbortError') {
+        console.warn("[AI Vision] Auto-scan tick error:", err.message);
+      }
     } finally {
       setIsScanning(false);
     }
@@ -165,14 +179,17 @@ export default function VisionTab({ onCreateReport }) {
     }
 
     console.log(`[AI Vision] Manual scan initiated. Payload length: ${imageBase64.length}`);
+    abortControllerRef.current = new AbortController();
 
     try {
-      const result = await queryGeminiVision(imageBase64);
+      const result = await queryGeminiVision(imageBase64, abortControllerRef.current.signal);
       
       if (result) {
         setScanAnalysis({
           timestamp: Date.now(),
           description: result.description,
+          summary: result.summary,
+          overallRisk: result.overallRisk || "Low",
           hazards: result.hazards || [],
           image: imageBase64
         });
@@ -181,7 +198,9 @@ export default function VisionTab({ onCreateReport }) {
         setErrorMessage("Unable to analyze this image. Please retry.");
       }
     } catch (err) {
-      setErrorMessage("Unable to analyze this image. Please retry.");
+      if (err.name !== 'AbortError') {
+        setErrorMessage("Unable to analyze this image. Please retry.");
+      }
     } finally {
       setIsScanning(false);
     }
@@ -274,9 +293,11 @@ export default function VisionTab({ onCreateReport }) {
           />
         )}
 
-        {/* Dynamic Multi-Object Bounding Box Overlays (Only from current scan) */}
+        {/* Dynamic Multi-Object Bounding Box Overlays (Drawn ONLY when coordinates exist) */}
         {!isScanning && scanAnalysis?.hazards && scanAnalysis.hazards.map((hazard, i) => {
-          const box = hazard.box || [20 + (i * 10), 20 + (i * 15), 45, 45];
+          if (!hazard.box || !Array.isArray(hazard.box) || hazard.box.length < 4) return null;
+          
+          const box = hazard.box;
           const isCritical = hazard.severity === 'Critical' || hazard.severity === 'High';
           const color = isCritical ? '#FF4D6D' : '#00E5FF';
 
@@ -391,10 +412,20 @@ export default function VisionTab({ onCreateReport }) {
               <ShieldCheck className="w-3.5 h-3.5 animate-pulse" /> HYDRA VISION OVERALL ANALYSIS
             </span>
             <p className="text-xs text-gray-300 mt-2 leading-relaxed">{scanAnalysis.description}</p>
-            {scanAnalysis.hazards.length === 0 && (
+            
+            {scanAnalysis.hazards.length === 0 ? (
               <p className="text-sm font-bold text-[#4ADE80] mt-3 flex items-center gap-2">
-                ✓ No significant civic issue detected in this frame. Area target green.
+                ✓ No significant disaster or civic hazard detected. Sector status normal.
               </p>
+            ) : (
+              <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between text-xs">
+                <span className="text-gray-400 font-mono">SECTOR OVERALL RISK:</span>
+                <span className={`font-mono font-bold ${
+                  scanAnalysis.overallRisk === 'Critical' || scanAnalysis.overallRisk === 'High' ? 'text-[#FF4D6D]' : 'text-[#FFC857]'
+                }`}>
+                  {scanAnalysis.overallRisk || 'Medium'}
+                </span>
+              </div>
             )}
           </div>
 
@@ -417,7 +448,7 @@ export default function VisionTab({ onCreateReport }) {
                     }`}>
                       ⚠ {hazard.severity} Severity
                     </span>
-                    <h3 className="text-base font-extrabold text-white mt-1.5">{hazard.label}</h3>
+                    <h3 className="text-base font-extrabold text-white mt-1.5">{hazard.label || hazard.type}</h3>
                     <p className="text-[10px] font-mono text-gray-400 mt-0.5">Routed to: {hazard.department}</p>
                   </div>
 
