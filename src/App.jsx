@@ -13,6 +13,7 @@ import VoiceAssistantModal from './components/VoiceAssistantModal';
 import NotificationDrawer from './components/NotificationDrawer';
 import { MOCK_HAZARDS } from './utils/mockData';
 import { soundFx } from './utils/audioSynth';
+import { syncReportToSupabase } from './utils/supabaseClient';
 import { AlertOctagon, PhoneCall, ShieldAlert, X } from 'lucide-react';
 
 export default function App() {
@@ -29,8 +30,10 @@ export default function App() {
   // Live Civic Reports State
   const [reportsList, setReportsList] = useState(MOCK_HAZARDS);
 
-  const handleCreateReport = (newReport) => {
+  const handleCreateReport = async (newReport) => {
     setReportsList(prev => [newReport, ...prev]);
+    // Synchronize asynchronously with Supabase Cloud DB
+    syncReportToSupabase(newReport);
     setActiveTab('reports');
   };
 
