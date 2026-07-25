@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Zap, Upload, RefreshCw, CheckCircle2, AlertOctagon, 
-  Sparkles, ShieldCheck, ArrowRight, Video, VideoOff, Info, Loader2
+  Sparkles, ShieldCheck, ArrowRight, Video, VideoOff, Info, Loader2, Play, Eye
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { soundFx } from '../utils/audioSynth';
@@ -14,7 +14,9 @@ export default function VisionTab({ onCreateReport }) {
   const [capturedImage, setCapturedImage] = useState(null);
   const [scanAnalysis, setScanAnalysis] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [autoScanActive, setAutoScanActive] = useState(true);
   const videoRef = useRef(null);
+  const scanIntervalRef = useRef(null);
 
   // Initialize webcam feed automatically on mount
   useEffect(() => {
@@ -40,59 +42,52 @@ export default function VisionTab({ onCreateReport }) {
       if (activeStream) {
         activeStream.getTracks().forEach(track => track.stop());
       }
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+      }
     };
   }, []);
 
-  // Handle Photo Capture / Frame Scan
-  const handleTriggerScan = async () => {
-    soundFx.playScanSound();
-    setIsScanning(true);
-    setErrorMessage('');
-    setScanAnalysis(null);
-
-    let imageBase64 = "";
-
-    // 1. Capture current frame from live HTML5 Video stream
-    if (videoRef.current && webcamStream && !capturedImage) {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = videoRef.current.videoWidth || 640;
-        canvas.height = videoRef.current.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        
-        imageBase64 = canvas.toDataURL('image/jpeg');
-        setCapturedImage(imageBase64);
-      } catch (err) {
-        console.error("Frame capture error:", err);
+  // Continuous Auto-Scan Loop (runs every 5 seconds when camera is active)
+  useEffect(() => {
+    if (webcamStream && autoScanActive && !scanAnalysis && !isScanning) {
+      scanIntervalRef.current = setInterval(() => {
+        autoCaptureAndScan();
+      }, 5000);
+    } else {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
       }
-    } else if (capturedImage) {
-      imageBase64 = capturedImage;
     }
 
-    if (!imageBase64) {
-      setErrorMessage("No active camera frame found to analyze. Please upload or start camera.");
-      setIsScanning(false);
-      return;
-    }
+    return () => {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+      }
+    };
+  }, [webcamStream, autoScanActive, scanAnalysis, isScanning]);
+
+  // Capture frame and query Gemini Vision autonomously
+  const autoCaptureAndScan = async () => {
+    if (!videoRef.current || isScanning || scanAnalysis) return;
 
     try {
-      // 2. Call Google Gemini Multimodal Vision API directly with frame data
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth || 640;
+      canvas.height = videoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      
+      const imageBase64 = canvas.toDataURL('image/jpeg');
+      
+      setIsScanning(true);
+      setErrorMessage('');
+
       const result = await queryGeminiVision(imageBase64);
       
       if (result) {
-        if (result.hazardType === 'None' || result.hazardType === 'none') {
-          setScanAnalysis({
-            hazardType: "None",
-            title: "Clear Environment",
-            severity: "Low",
-            confidence: result.confidence || 99,
-            recommendation: "No anomalies, hazards, or public structures identified in this sector. Area is clean and safe.",
-            dept: "None",
-            image: imageBase64,
-            boxes: []
-          });
-        } else {
+        if (result.hazardType !== 'None' && result.hazardType !== 'none') {
+          soundFx.playAlertSound();
           setScanAnalysis({
             hazardType: result.hazardType,
             title: result.label || result.hazardType,
@@ -114,12 +109,74 @@ export default function VisionTab({ onCreateReport }) {
             ]
           });
         }
-        soundFx.playSuccessSound();
-      } else {
-        setErrorMessage("Vision AI Engine Offline. Verify Google Gemini API Key configuration.");
       }
     } catch (err) {
-      setErrorMessage("AI analysis failed or timed out. Please try again.");
+      console.warn("Auto-Scan tick failed:", err.message);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Manual Trigger shutter action
+  const handleTriggerScan = async () => {
+    soundFx.playScanSound();
+    setIsScanning(true);
+    setErrorMessage('');
+    setScanAnalysis(null);
+
+    let imageBase64 = "";
+
+    if (videoRef.current && webcamStream) {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = videoRef.current.videoWidth || 640;
+        canvas.height = videoRef.current.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        
+        imageBase64 = canvas.toDataURL('image/jpeg');
+        setCapturedImage(imageBase64);
+      } catch (err) {
+        console.error("Frame capture error:", err);
+      }
+    }
+
+    if (!imageBase64) {
+      setErrorMessage("No active camera frame found. Please start camera feed.");
+      setIsScanning(false);
+      return;
+    }
+
+    try {
+      const result = await queryGeminiVision(imageBase64);
+      
+      if (result) {
+        setScanAnalysis({
+          hazardType: result.hazardType,
+          title: result.label || result.hazardType,
+          severity: result.severity || "Medium",
+          confidence: result.confidence || 95.0,
+          recommendation: result.recommendation,
+          dept: result.dept || "GHMC Command Center",
+          image: imageBase64,
+          boxes: result.hazardType !== 'None' ? [
+            { 
+              label: result.label, 
+              confidence: result.confidence, 
+              x: 20, 
+              y: 25, 
+              width: 60, 
+              height: 50, 
+              color: result.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' 
+            }
+          ] : []
+        });
+        soundFx.playSuccessSound();
+      } else {
+        setErrorMessage("Vision AI Engine Offline. Check API Key configuration.");
+      }
+    } catch (err) {
+      setErrorMessage("AI analysis failed.");
     } finally {
       setIsScanning(false);
     }
@@ -154,14 +211,15 @@ export default function VisionTab({ onCreateReport }) {
 
     onCreateReport(newReport);
     alert(`Live Report ${newReport.id} successfully registered with ${scanAnalysis.dept}!`);
+    resetCamera();
   };
 
-  // Reset Camera Viewfinder
   const resetCamera = () => {
     soundFx.playClickSound();
     setCapturedImage(null);
     setScanAnalysis(null);
     setErrorMessage('');
+    setAutoScanActive(true);
   };
 
   return (
@@ -177,7 +235,12 @@ export default function VisionTab({ onCreateReport }) {
         </div>
 
         <div className="flex items-center space-x-2">
-          {/* Flash Toggle */}
+          {/* Auto Scan Indicator Badge */}
+          <span className="px-2.5 py-1 rounded-full bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/30 text-[10px] font-mono flex items-center gap-1.5 animate-pulse">
+            <Eye className="w-3.5 h-3.5" />
+            <span>AUTO-SCANNING ACTIVE</span>
+          </span>
+
           <button
             onClick={() => { setFlashOn(!flashOn); soundFx.playClickSound(); }}
             className={`p-2.5 rounded-xl border transition-all ${
@@ -274,6 +337,8 @@ export default function VisionTab({ onCreateReport }) {
                   setCapturedImage(url);
                   setScanAnalysis(null);
                   setErrorMessage('');
+                  setAutoScanActive(false); // Pause auto-scan for manual uploads
+                  handleTriggerScan();
                 }
               }}
             />
@@ -314,8 +379,8 @@ export default function VisionTab({ onCreateReport }) {
         <div className="glass-card-cyan p-5 relative space-y-4">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5" /> LIVE CAMERA TELEMETRY DETAILS
+              <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                <ShieldCheck className="w-3.5 h-3.5" /> HAZARD DETECTED IN CAMERA FIELD
               </span>
               <h3 className="text-lg font-extrabold text-white mt-0.5">{scanAnalysis.title}</h3>
             </div>
