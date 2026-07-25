@@ -32,7 +32,7 @@ export default function VisionTab({ onCreateReport }) {
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
-        setErrorMessage("Webcam permissions not granted or camera busy. Click upload or check permissions.");
+        setErrorMessage("Webcam permissions not granted. Click upload icon below to analyze a photo.");
       }
     };
 
@@ -48,12 +48,12 @@ export default function VisionTab({ onCreateReport }) {
     };
   }, []);
 
-  // Continuous Auto-Scan Loop (runs every 5 seconds when camera is active)
+  // Continuous Auto-Scan Loop
   useEffect(() => {
     if (webcamStream && autoScanActive && !scanAnalysis && !isScanning) {
       scanIntervalRef.current = setInterval(() => {
         autoCaptureAndScan();
-      }, 5000);
+      }, 6000);
     } else {
       if (scanIntervalRef.current) {
         clearInterval(scanIntervalRef.current);
@@ -67,6 +67,28 @@ export default function VisionTab({ onCreateReport }) {
     };
   }, [webcamStream, autoScanActive, scanAnalysis, isScanning]);
 
+  // Client-side Image Compressor Helper
+  const compressImage = (dataUrl, maxWidth = 600, quality = 0.7) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = dataUrl;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+    });
+  };
+
   // Capture frame and query Gemini Vision autonomously
   const autoCaptureAndScan = async () => {
     if (!videoRef.current || isScanning || scanAnalysis) return;
@@ -78,55 +100,39 @@ export default function VisionTab({ onCreateReport }) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       
-      const imageBase64 = canvas.toDataURL('image/jpeg');
+      const rawBase64 = canvas.toDataURL('image/jpeg');
+      const compressedBase64 = await compressImage(rawBase64);
       
       setIsScanning(true);
       setErrorMessage('');
 
-      const result = await queryGeminiVision(imageBase64);
+      const result = await queryGeminiVision(compressedBase64);
       
-      if (result) {
-        if (result.hazardType !== 'None' && result.hazardType !== 'none') {
-          soundFx.playAlertSound();
-          setScanAnalysis({
-            hazardType: result.hazardType,
-            title: result.label || result.hazardType,
-            severity: result.severity || "Medium",
-            confidence: result.confidence || 95.0,
-            recommendation: result.recommendation,
-            dept: result.dept || "GHMC Command Center",
-            image: imageBase64,
-            boxes: [
-              { 
-                label: result.label, 
-                confidence: result.confidence, 
-                x: 20, 
-                y: 25, 
-                width: 60, 
-                height: 50, 
-                color: result.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' 
-              }
-            ]
-          });
-        }
+      if (result && result.hazards && result.hazards.length > 0) {
+        soundFx.playAlertSound();
+        setScanAnalysis({
+          description: result.description,
+          hazards: result.hazards,
+          image: compressedBase64
+        });
       }
     } catch (err) {
-      console.warn("Auto-Scan tick failed:", err.message);
+      console.warn("Auto-scan loop tick failed:", err.message);
     } finally {
       setIsScanning(false);
     }
   };
 
   // Manual Trigger shutter action
-  const handleTriggerScan = async () => {
+  const handleTriggerScan = async (fileBase64 = null) => {
     soundFx.playScanSound();
     setIsScanning(true);
     setErrorMessage('');
     setScanAnalysis(null);
 
-    let imageBase64 = "";
+    let imageBase64 = fileBase64;
 
-    if (videoRef.current && webcamStream) {
+    if (!imageBase64 && videoRef.current && webcamStream) {
       try {
         const canvas = document.createElement('canvas');
         canvas.width = videoRef.current.videoWidth || 640;
@@ -134,7 +140,8 @@ export default function VisionTab({ onCreateReport }) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
         
-        imageBase64 = canvas.toDataURL('image/jpeg');
+        const rawBase64 = canvas.toDataURL('image/jpeg');
+        imageBase64 = await compressImage(rawBase64);
         setCapturedImage(imageBase64);
       } catch (err) {
         console.error("Frame capture error:", err);
@@ -142,7 +149,7 @@ export default function VisionTab({ onCreateReport }) {
     }
 
     if (!imageBase64) {
-      setErrorMessage("No active camera frame found. Please start camera feed.");
+      setErrorMessage("No active camera frame or uploaded photo found. Please try again.");
       setIsScanning(false);
       return;
     }
@@ -152,28 +159,13 @@ export default function VisionTab({ onCreateReport }) {
       
       if (result) {
         setScanAnalysis({
-          hazardType: result.hazardType,
-          title: result.label || result.hazardType,
-          severity: result.severity || "Medium",
-          confidence: result.confidence || 95.0,
-          recommendation: result.recommendation,
-          dept: result.dept || "GHMC Command Center",
-          image: imageBase64,
-          boxes: result.hazardType !== 'None' ? [
-            { 
-              label: result.label, 
-              confidence: result.confidence, 
-              x: 20, 
-              y: 25, 
-              width: 60, 
-              height: 50, 
-              color: result.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' 
-            }
-          ] : []
+          description: result.description,
+          hazards: result.hazards || [],
+          image: imageBase64
         });
         soundFx.playSuccessSound();
       } else {
-        setErrorMessage("Vision AI Engine Offline. Check API Key configuration.");
+        setErrorMessage("Vision AI Engine Offline. Check Google API Key or Network Connection.");
       }
     } catch (err) {
       setErrorMessage("AI analysis failed.");
@@ -182,36 +174,33 @@ export default function VisionTab({ onCreateReport }) {
     }
   };
 
-  // Submit Civic Report Action
-  const handleCreateCivicReport = () => {
-    if (!scanAnalysis || scanAnalysis.hazardType === 'None') return;
-
+  // Dispatch individual civic report to GHMC
+  const handleCreateCivicReport = (hazard) => {
     soundFx.playSuccessSound();
     confetti({
-      particleCount: 100,
-      spread: 80,
-      origin: { y: 0.7 }
+      particleCount: 80,
+      spread: 60,
+      origin: { y: 0.8 }
     });
 
     const newReport = {
       id: `HZ-${Math.floor(1000 + Math.random() * 9000)}`,
-      title: `${scanAnalysis.title} Detected via AI Vision`,
-      category: scanAnalysis.hazardType,
-      location: "Captured Sector, Cyberabad, Hyderabad",
+      title: `${hazard.label || hazard.type} Detected`,
+      category: hazard.type,
+      location: "Live Camera Coordinate Sector, Hyderabad",
       coords: [17.4325, 78.4071],
-      severity: scanAnalysis.severity,
-      confidence: scanAnalysis.confidence,
+      severity: hazard.severity,
+      confidence: hazard.confidence,
       status: "Submitted",
-      dept: scanAnalysis.dept,
+      dept: hazard.department,
       date: new Date().toLocaleString(),
       upvotes: 1,
-      image: scanAnalysis.image,
-      description: scanAnalysis.recommendation
+      image: scanAnalysis.image || "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=600&q=80",
+      description: hazard.recommendation
     };
 
     onCreateReport(newReport);
-    alert(`Live Report ${newReport.id} successfully registered with ${scanAnalysis.dept}!`);
-    resetCamera();
+    alert(`Live Report ${newReport.id} successfully registered with ${hazard.department}!`);
   };
 
   const resetCamera = () => {
@@ -235,7 +224,6 @@ export default function VisionTab({ onCreateReport }) {
         </div>
 
         <div className="flex items-center space-x-2">
-          {/* Auto Scan Indicator Badge */}
           <span className="px-2.5 py-1 rounded-full bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/30 text-[10px] font-mono flex items-center gap-1.5 animate-pulse">
             <Eye className="w-3.5 h-3.5" />
             <span>AUTO-SCANNING ACTIVE</span>
@@ -274,29 +262,35 @@ export default function VisionTab({ onCreateReport }) {
           />
         )}
 
-        {/* Bounding Box Overlays */}
-        {!isScanning && scanAnalysis?.boxes && scanAnalysis.boxes.map((box, i) => (
-          <div 
-            key={i}
-            className="absolute border-2 rounded-xl backdrop-blur-[1px] animate-pulse pointer-events-none z-20"
-            style={{
-              left: `${box.x}%`,
-              top: `${box.y}%`,
-              width: `${box.width}%`,
-              height: `${box.height}%`,
-              borderColor: scanAnalysis.severity === 'Critical' ? '#FF4D6D' : '#00E5FF',
-              boxShadow: `0 0 20px ${scanAnalysis.severity === 'Critical' ? '#FF4D6D' : '#00E5FF'}60`
-            }}
-          >
+        {/* Dynamic Multi-Object Bounding Box Overlays */}
+        {!isScanning && scanAnalysis?.hazards && scanAnalysis.hazards.map((hazard, i) => {
+          // Bounding Box dimensions [top, left, height, width]
+          const box = hazard.box || [20 + (i * 10), 20 + (i * 15), 45, 45];
+          const isCritical = hazard.severity === 'Critical' || hazard.severity === 'High';
+          const color = isCritical ? '#FF4D6D' : '#00E5FF';
+
+          return (
             <div 
-              className="absolute -top-7 left-0 px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold text-black flex items-center gap-1 shadow-md whitespace-nowrap"
-              style={{ backgroundColor: scanAnalysis.severity === 'Critical' ? '#FF4D6D' : '#00E5FF' }}
+              key={i}
+              className="absolute border-2 rounded-xl backdrop-blur-[1px] animate-pulse pointer-events-none z-20"
+              style={{
+                top: `${box[0]}%`,
+                left: `${box[1]}%`,
+                width: `${box[2]}%`,
+                height: `${box[3]}%`,
+                borderColor: color,
+                boxShadow: `0 0 20px ${color}60`
+              }}
             >
-              <span>{scanAnalysis.title}</span>
-              <span>[{scanAnalysis.confidence}%]</span>
+              <div 
+                className="absolute -top-7 left-0 px-2 py-0.5 rounded-md text-[9px] font-mono font-bold text-black shadow-md whitespace-nowrap"
+                style={{ backgroundColor: color }}
+              >
+                ⚠ {hazard.label} [{hazard.confidence}%]
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* Scanning Sweep */}
         {isScanning && (
@@ -324,21 +318,25 @@ export default function VisionTab({ onCreateReport }) {
 
         {/* Shutter controls */}
         <div className="absolute bottom-4 inset-x-0 flex items-center justify-between px-6 z-20">
-          <label className="p-3 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white cursor-pointer transition-all">
+          <label className="p-3 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white cursor-pointer transition-all active:scale-95">
             <Upload className="w-5 h-5" />
             <input 
               type="file" 
               accept="image/*" 
               className="hidden" 
-              onChange={(e) => {
+              onChange={async (e) => {
                 const file = e.target.files[0];
                 if (file) {
-                  const url = URL.createObjectURL(file);
-                  setCapturedImage(url);
-                  setScanAnalysis(null);
-                  setErrorMessage('');
-                  setAutoScanActive(false); // Pause auto-scan for manual uploads
-                  handleTriggerScan();
+                  const reader = new FileReader();
+                  reader.onload = async () => {
+                    const compressed = await compressImage(reader.result);
+                    setCapturedImage(compressed);
+                    setScanAnalysis(null);
+                    setErrorMessage('');
+                    setAutoScanActive(false);
+                    handleTriggerScan(compressed);
+                  };
+                  reader.readAsDataURL(file);
                 }
               }}
             />
@@ -358,7 +356,7 @@ export default function VisionTab({ onCreateReport }) {
           {/* Rescan / Reset */}
           <button
             onClick={resetCamera}
-            className="p-3 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white transition-all"
+            className="p-3 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white transition-all active:scale-95"
             title="Reset Camera View"
           >
             <RefreshCw className="w-5 h-5" />
@@ -374,63 +372,75 @@ export default function VisionTab({ onCreateReport }) {
         </div>
       )}
 
-      {/* Anomaly Analysis Card Result */}
+      {/* Multi-Hazard Result Timeline & Banners */}
       {scanAnalysis && (
-        <div className="glass-card-cyan p-5 relative space-y-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                <ShieldCheck className="w-3.5 h-3.5" /> HAZARD DETECTED IN CAMERA FIELD
-              </span>
-              <h3 className="text-lg font-extrabold text-white mt-0.5">{scanAnalysis.title}</h3>
-            </div>
-
-            <div className="text-right">
-              <span className="text-[10px] text-gray-400 font-mono">MATCH CONFIDENCE</span>
-              <p className="text-xl font-extrabold text-[#4ADE80] font-mono">{scanAnalysis.confidence}%</p>
-            </div>
+        <div className="space-y-3">
+          
+          <div className="glass-panel p-4 border border-white/10">
+            <span className="text-[10px] font-mono text-[#00E5FF] uppercase tracking-wider flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 animate-pulse" /> HYDRA VISION OVERALL ANALYSIS
+            </span>
+            <p className="text-xs text-gray-300 mt-2 leading-relaxed">{scanAnalysis.description}</p>
+            {scanAnalysis.hazards.length === 0 && (
+              <p className="text-sm font-bold text-[#4ADE80] mt-3 flex items-center gap-2">
+                ✓ No significant civic issue detected in this frame. Area target green.
+              </p>
+            )}
           </div>
 
-          {/* Severity & Department Grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
-              <p className="text-[10px] font-mono text-gray-400 uppercase">SEVERITY INDEX</p>
-              <div className="flex items-center space-x-2 mt-1">
-                <span className={`w-3 h-3 rounded-full ${
-                  scanAnalysis.severity === 'Critical' ? 'bg-[#FF4D6D] animate-ping' : 'bg-[#FFC857]'
-                }`}></span>
-                <span className={`text-sm font-bold ${
-                  scanAnalysis.severity === 'Critical' ? 'text-[#FF4D6D]' : 'text-[#FFC857]'
-                }`}>
-                  {scanAnalysis.severity}
-                </span>
+          {/* Individual Hazard Cards */}
+          {scanAnalysis.hazards.map((hazard, index) => {
+            const isCritical = hazard.severity === 'Critical' || hazard.severity === 'High';
+            return (
+              <div 
+                key={index}
+                className={`p-5 rounded-[28px] border transition-all duration-300 ${
+                  isCritical 
+                    ? 'bg-gradient-to-br from-[#FF4D6D]/10 to-transparent border-[#FF4D6D]/40 shadow-lg shadow-[#FF4D6D]/10' 
+                    : 'bg-white/5 border-white/10'
+                }`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-mono font-bold ${
+                      isCritical ? 'bg-[#FF4D6D]/20 text-[#FF4D6D]' : 'bg-[#FFC857]/20 text-[#FFC857]'
+                    }`}>
+                      ⚠ {hazard.severity} Severity
+                    </span>
+                    <h3 className="text-base font-extrabold text-white mt-1.5">{hazard.label}</h3>
+                    <p className="text-[10px] font-mono text-gray-400 mt-0.5">Routed to: {hazard.department}</p>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-gray-400 font-mono">CONFIDENCE</span>
+                    <p className={`text-lg font-extrabold font-mono ${isCritical ? 'text-[#FF4D6D]' : 'text-[#4ADE80]'}`}>
+                      {hazard.confidence}%
+                    </p>
+                  </div>
+                </div>
+
+                {/* Recommendations */}
+                <div className="mt-3 p-3 rounded-2xl bg-black/40 border border-white/5 text-xs">
+                  <p className="text-[9px] font-mono text-[#00E5FF] uppercase font-bold">RECOMMENDATION / TIMINGS:</p>
+                  <p className="text-gray-300 mt-1 leading-relaxed whitespace-pre-line">{hazard.recommendation}</p>
+                </div>
+
+                {/* Action button */}
+                <button
+                  onClick={() => handleCreateCivicReport(hazard)}
+                  className={`w-full mt-4 py-3 rounded-2xl font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-95 ${
+                    isCritical
+                      ? 'bg-gradient-to-r from-[#FF4D6D] to-[#C77DFF] text-white shadow-md'
+                      : 'bg-gradient-to-r from-[#00E5FF] to-[#4ADE80] text-black font-extrabold shadow-md'
+                  }`}
+                >
+                  <span>{hazard.type === 'Bus Stand' ? 'SYNC RTC TRANSIT SCHEDULE' : 'REPORT TO DEPARTMENT'}</span>
+                  <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                </button>
               </div>
-            </div>
+            );
+          })}
 
-            <div className="p-3 rounded-2xl bg-black/40 border border-white/5">
-              <p className="text-[10px] font-mono text-gray-400 uppercase">TARGET DEPARTMENT</p>
-              <p className="text-xs font-bold text-white mt-1 truncate">{scanAnalysis.dept}</p>
-            </div>
-          </div>
-
-          {/* Live recommendations / bus arrival info */}
-          <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs space-y-1">
-            <p className="text-[10px] font-mono text-[#00E5FF] uppercase font-bold flex items-center gap-1">
-              <Info className="w-3.5 h-3.5" /> {scanAnalysis.hazardType === 'Bus Stand' ? 'UPCOMING DEPARTURES & ARRIVALS:' : 'AI MITIGATION ACTION RECOMMENDATION:'}
-            </p>
-            <p className="text-gray-300 leading-relaxed whitespace-pre-line">{scanAnalysis.recommendation}</p>
-          </div>
-
-          {/* Action Button: Create Civic Report */}
-          {scanAnalysis.hazardType !== 'None' && (
-            <button
-              onClick={handleCreateCivicReport}
-              className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-[#00E5FF] via-[#4ADE80] to-[#00E5FF] text-black font-extrabold text-sm shadow-[0_0_25px_rgba(0,229,255,0.4)] hover:brightness-110 active:scale-98 transition-all flex items-center justify-center space-x-2"
-            >
-              <span>{scanAnalysis.hazardType === 'Bus Stand' ? 'SYNC RTC TRANSIT SCHEDULE' : 'DISPATCH OFFICIAL CIVIC REPORT'}</span>
-              <ArrowRight className="w-4 h-4 stroke-[2.5]" />
-            </button>
-          )}
         </div>
       )}
 
