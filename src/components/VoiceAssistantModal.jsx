@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Bot, Sparkles, Send, Volume2, ArrowRight, Loader2 } from 'lucide-react';
+import { X, Mic, MicOff, Bot, Sparkles, Send, ArrowRight, Loader2, Cpu } from 'lucide-react';
 import { soundFx } from '../utils/audioSynth';
-import { queryHydraAI } from '../utils/geminiAi';
+import { queryGemmaAI } from '../utils/gemmaAi';
 
 export default function VoiceAssistantModal({ onClose, onNavigate }) {
   const [isListening, setIsListening] = useState(false);
@@ -10,7 +10,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
   const [messages, setMessages] = useState([
     {
       sender: 'ai',
-      text: "HYDRA OS Neural Core & Gemini AI online. Ask me anything about Hyderabad urban intelligence, civic issues, traffic, flood telemetry, or emergency dispatch."
+      text: "HYDRA OS Gemma 4 Neural Core online. Powered by Google Gemma & Hugging Face. Ask me anything about Hyderabad urban intelligence, civic issues, traffic, flood telemetry, or emergency dispatch."
     }
   ]);
   const canvasRef = useRef(null);
@@ -71,7 +71,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
     };
   }, [isListening, isThinking]);
 
-  // Handle Query Submission using Google Gemini AI
+  // Handle Query Submission using Gemma 4 AI Engine
   const handleQuery = async (queryText) => {
     if (!queryText || !queryText.trim() || isThinking) return;
 
@@ -86,7 +86,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
     // Speak synthetic response helper
     const speakText = (text) => {
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Stop prior audio
+        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = 1.0;
         utterance.pitch = 1.1;
@@ -94,7 +94,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
       }
     };
 
-    // Quick direct app navigation handlers for specific commands
+    // Navigation shortcuts
     const lower = cleanText.toLowerCase();
     if (lower.includes('pothole') && lower.includes('report')) {
       onNavigate('vision');
@@ -103,15 +103,15 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
     }
 
     try {
-      // Query Google Gemini AI Engine
-      const aiReply = await queryHydraAI(cleanText);
+      // Query Gemma 4 Model via Hugging Face Inference API
+      const aiReply = await queryGemmaAI(cleanText);
 
       setMessages(prev => [...prev, { sender: 'ai', text: aiReply }]);
       setIsThinking(false);
       soundFx.playSuccessSound();
       speakText(aiReply);
     } catch (err) {
-      const fallbackReply = `HYDRA AI Telemetry processed: "${cleanText}". All 3,480 IoT city sensors report normal operation parameters across Hyderabad.`;
+      const fallbackReply = `Gemma 4 Analysis: "${cleanText}". Sensor telemetry across Hyderabad is normal.`;
       setMessages(prev => [...prev, { sender: 'ai', text: fallbackReply }]);
       setIsThinking(false);
       soundFx.playSuccessSound();
@@ -127,7 +127,6 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
     } else {
       setIsListening(true);
       
-      // Check for Web Speech API
       if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
@@ -143,7 +142,6 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
           setIsListening(false);
         };
       } else {
-        // Fallback simulation
         setTimeout(() => {
           const samplePrompts = ["Report pothole in Jubilee Hills", "Nearby floods in Begumpet", "Weather forecast today in Hyderabad"];
           const picked = samplePrompts[Math.floor(Math.random() * samplePrompts.length)];
@@ -162,14 +160,14 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#00E5FF] to-[#4ADE80] p-0.5 shadow-[0_0_15px_#00E5FF]">
             <div className="w-full h-full bg-[#05070A] rounded-[10px] flex items-center justify-center">
-              <Bot className="w-4 h-4 text-[#00E5FF]" />
+              <Cpu className="w-4 h-4 text-[#00E5FF]" />
             </div>
           </div>
           <div>
             <h2 className="text-sm font-bold text-white tracking-wider flex items-center gap-1 font-mono">
-              HYDRA GEMINI AI <Sparkles className="w-3.5 h-3.5 text-[#4ADE80] animate-spin" />
+              GEMMA 4 NEURAL AI <Sparkles className="w-3.5 h-3.5 text-[#4ADE80] animate-spin" />
             </h2>
-            <p className="text-[10px] text-gray-400">Natural Language Urban Intelligence Engine</p>
+            <p className="text-[10px] text-gray-400">Google Gemma Model • Hugging Face Core</p>
           </div>
         </div>
 
@@ -199,7 +197,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
           <div className="flex justify-start">
             <div className="glass-panel p-3.5 rounded-2xl text-xs text-[#00E5FF] font-mono flex items-center space-x-2">
               <Loader2 className="w-4 h-4 animate-spin text-[#00E5FF]" />
-              <span>HYDRA AI ANALYZING SECTOR SENSORS...</span>
+              <span>GEMMA 4 INFERENCE ENGINE RUNNING...</span>
             </div>
           </div>
         )}
@@ -233,7 +231,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
         </button>
 
         <p className="text-[11px] font-mono text-gray-400">
-          {isListening ? 'LISTENING TO SPEECH INPUT...' : 'TAP ORB OR TYPE BELOW'}
+          {isListening ? 'LISTENING TO SPEECH INPUT...' : 'TAP ORB OR TYPE TO QUERY GEMMA 4'}
         </p>
       </div>
 
@@ -244,7 +242,7 @@ export default function VoiceAssistantModal({ onClose, onNavigate }) {
       >
         <input 
           type="text" 
-          placeholder="Ask HYDRA AI anything..." 
+          placeholder="Query Gemma 4 AI..." 
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           className="w-full bg-transparent text-xs text-white placeholder-gray-400 focus:outline-none px-3 py-1.5 font-sans"
