@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Bell, CloudSun, Volume2, VolumeX, Sparkles } from 'lucide-react';
 import { soundFx } from '../utils/audioSynth';
 import { HYDERABAD_AQI } from '../utils/mockData';
+import { fetchLiveHyderabadWeather } from '../utils/weatherApi';
 
 export default function Header({ onOpenNotifications, onOpenWeather, soundEnabled, setSoundEnabled, unreadCount }) {
   const [timeStr, setTimeStr] = useState('');
+  const [weatherData, setWeatherData] = useState(HYDERABAD_AQI);
 
   useEffect(() => {
     const updateTime = () => {
@@ -13,6 +15,12 @@ export default function Header({ onOpenNotifications, onOpenWeather, soundEnable
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
+
+    // Fetch OpenWeather API
+    fetchLiveHyderabadWeather().then(live => {
+      if (live) setWeatherData(prev => ({ ...prev, ...live }));
+    });
+
     return () => clearInterval(interval);
   }, []);
 
@@ -53,8 +61,8 @@ export default function Header({ onOpenNotifications, onOpenWeather, soundEnable
           title="Hyderabad Weather & AQI"
         >
           <CloudSun className="w-4 h-4 text-[#FFC857]" />
-          <span className="font-semibold text-white">{HYDERABAD_AQI.temp}°C</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">AQI {HYDERABAD_AQI.score}</span>
+          <span className="font-semibold text-white">{weatherData.temp}°C</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono">AQI {weatherData.score}</span>
         </button>
 
         {/* Audio Toggle */}
