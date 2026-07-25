@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useUser, useClerk, UserButton } from '@clerk/clerk-react';
 import { 
   User, ShieldCheck, Award, Eye, FileText, CheckCircle2, 
   Moon, Volume2, Globe, Lock, LogOut, ChevronRight, Sparkles, Cpu, Bell, LogIn
@@ -6,9 +7,11 @@ import {
 import { MOCK_USER } from '../utils/mockData';
 import { soundFx } from '../utils/audioSynth';
 
-export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, currentUser, onOpenAuth }) {
+export default function ProfileTab({ soundEnabled, setSoundEnabled, onOpenAuth }) {
   const [oledMode, setOledMode] = useState(false);
   const [language, setLanguage] = useState('English');
+  const { user: clerkUser, isSignedIn } = useUser();
+  const { signOut } = useClerk();
 
   const toggleSound = () => {
     const newState = soundFx.toggleAudio();
@@ -16,7 +19,17 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, cu
     if (newState) soundFx.playClickSound();
   };
 
-  const user = currentUser || MOCK_USER;
+  const displayName = isSignedIn && clerkUser 
+    ? (clerkUser.fullName || clerkUser.firstName || clerkUser.primaryEmailAddress?.emailAddress?.split('@')[0].toUpperCase())
+    : MOCK_USER.name;
+
+  const displayEmail = isSignedIn && clerkUser
+    ? clerkUser.primaryEmailAddress?.emailAddress
+    : MOCK_USER.rank;
+
+  const displayAvatar = isSignedIn && clerkUser
+    ? clerkUser.imageUrl
+    : MOCK_USER.avatar;
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8 select-none">
@@ -29,7 +42,7 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, cu
         <div className="relative w-20 h-20 mx-auto mb-3">
           <div className="absolute -inset-2 bg-gradient-to-tr from-[#00E5FF] to-[#4ADE80] rounded-full blur-md opacity-70 animate-pulse"></div>
           <img 
-            src={user.avatar || MOCK_USER.avatar} 
+            src={displayAvatar} 
             alt="Profile Avatar" 
             className="w-full h-full object-cover rounded-full border-2 border-white relative z-10" 
           />
@@ -38,19 +51,26 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, cu
           </div>
         </div>
 
-        <h2 className="text-xl font-extrabold text-white">{user.name}</h2>
-        <p className="text-xs text-[#00E5FF] font-mono mt-0.5">{user.role || MOCK_USER.level}</p>
-        <p className="text-[11px] text-gray-400 font-mono">{user.email || MOCK_USER.rank}</p>
+        <h2 className="text-xl font-extrabold text-white">{displayName}</h2>
+        <p className="text-xs text-[#00E5FF] font-mono mt-0.5">{isSignedIn ? "Verified Clerk Sentinel" : MOCK_USER.level}</p>
+        <p className="text-[11px] text-gray-400 font-mono">{displayEmail}</p>
 
-        {/* Clerk Auth Quick Badge */}
-        <div className="mt-3 flex justify-center">
-          <button
-            onClick={() => { soundFx.playClickSound(); onOpenAuth(); }}
-            className="px-3 py-1 rounded-full bg-[#00E5FF]/10 border border-[#00E5FF]/40 text-[#00E5FF] text-[10px] font-mono flex items-center gap-1.5 hover:bg-[#00E5FF]/20 transition-all"
-          >
-            <LogIn className="w-3 h-3" />
-            <span>AUTHENTICATE VIA CLERK</span>
-          </button>
+        {/* Clerk User Button / Sign In Trigger */}
+        <div className="mt-3 flex justify-center items-center gap-2">
+          {isSignedIn ? (
+            <div className="flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
+              <UserButton afterSignOutUrl="/" />
+              <span className="text-[10px] text-[#4ADE80] font-mono font-bold">CLERK AUTH ACTIVE</span>
+            </div>
+          ) : (
+            <button
+              onClick={() => { soundFx.playClickSound(); onOpenAuth(); }}
+              className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-[#00E5FF] to-[#4ADE80] text-black font-bold text-xs flex items-center gap-1.5 shadow-[0_0_15px_rgba(0,229,255,0.4)] hover:brightness-110 active:scale-95 transition-all"
+            >
+              <LogIn className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>SIGN IN WITH CLERK</span>
+            </button>
+          )}
         </div>
 
         {/* Radial Citizen Score Gauge */}
@@ -164,7 +184,7 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, cu
           <div className="p-3 rounded-2xl bg-white/5 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <Globe className="w-4 h-4 text-purple-400" />
-              <span className="text-xs text-[#00E5FF]">Interface Language</span>
+              <span className="text-xs text-white">Interface Language</span>
             </div>
             <select
               value={language}
@@ -192,13 +212,15 @@ export default function ProfileTab({ soundEnabled, setSoundEnabled, onLogout, cu
       </div>
 
       {/* 5. Logout Button */}
-      <button
-        onClick={() => { soundFx.playAlertSound(); onLogout(); }}
-        className="w-full py-3.5 rounded-2xl bg-[#FF4D6D]/15 hover:bg-[#FF4D6D]/25 border border-[#FF4D6D]/40 text-[#FF4D6D] font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-95"
-      >
-        <LogOut className="w-4 h-4" />
-        <span>LOCK & DISCONNECT HYDRA SESSION</span>
-      </button>
+      {isSignedIn && (
+        <button
+          onClick={() => { soundFx.playAlertSound(); signOut(); }}
+          className="w-full py-3.5 rounded-2xl bg-[#FF4D6D]/15 hover:bg-[#FF4D6D]/25 border border-[#FF4D6D]/40 text-[#FF4D6D] font-bold text-xs flex items-center justify-center space-x-2 transition-all active:scale-95"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>SIGN OUT CLERK SESSION</span>
+        </button>
+      )}
 
     </div>
   );

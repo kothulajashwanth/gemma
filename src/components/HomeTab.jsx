@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { 
   Scan, AlertTriangle, Flame, ShieldAlert, Sparkles, 
   TrendingUp, Activity, CloudRain, ChevronRight, Eye, 
@@ -7,10 +8,17 @@ import {
 import { MOCK_USER, HYDERABAD_AQI, AI_INSIGHTS, MOCK_HAZARDS } from '../utils/mockData';
 import { soundFx } from '../utils/audioSynth';
 
-export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency, currentUser }) {
+export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency }) {
   const [stats, setStats] = useState({ scans: 0, reports: 0, hazards: 0, healthScore: 0 });
+  const { user: clerkUser, isSignedIn } = useUser();
 
-  const user = currentUser || MOCK_USER;
+  const userName = isSignedIn && clerkUser
+    ? (clerkUser.fullName || clerkUser.firstName || clerkUser.primaryEmailAddress?.emailAddress?.split('@')[0].toUpperCase())
+    : MOCK_USER.name;
+
+  const userAvatar = isSignedIn && clerkUser
+    ? clerkUser.imageUrl
+    : MOCK_USER.avatar;
 
   // Animate stats counter on tab load
   useEffect(() => {
@@ -47,7 +55,7 @@ export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency, cu
               </span>
             </div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">
-              Good Morning, <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-[#00E5FF] to-[#4ADE80]">{user.name}</span>
+              Good Morning, <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-[#00E5FF] to-[#4ADE80]">{userName}</span>
             </h2>
             <p className="text-xs text-gray-400 mt-1">
               Hyderabad Sentinel ID: <span className="text-gray-200 font-mono">HYD-9042-SENT</span>
@@ -56,7 +64,7 @@ export default function HomeTab({ onNavigate, onOpenWeather, onOpenEmergency, cu
 
           <div className="w-12 h-12 rounded-2xl p-0.5 bg-gradient-to-tr from-[#00E5FF] to-[#4ADE80] shadow-lg shadow-[#00E5FF]/20">
             <img 
-              src={user.avatar || MOCK_USER.avatar} 
+              src={userAvatar} 
               alt="Profile" 
               className="w-full h-full object-cover rounded-[14px]" 
             />
